@@ -1,0 +1,63 @@
+{
+  "name": "samp-launcher",
+  "version": "1.0.0",
+  "description": "SA:MP World - Launcher resmi untuk server GTA: Pinehill",
+  "main": "main.js",
+  "author": "GTA: Pinehill",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "@xhayper/discord-rpc": "^1.3.4"
+  },
+  "build": {
+    "appId": "com.pinehill.sampworld",
+    "productName": "SA:MP World",
+    "copyright": "Copyright © 2026 GTA: Pinehill",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "SAMP-World-Setup.exe",
+      "shortcutName": "SA:MP World"
+    },
+    "portable": {
+      "artifactName": "SAMP-World-Portable.exe"
+    }
+  }
+}

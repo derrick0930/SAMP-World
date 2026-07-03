@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://samp-api-blue.vercel.app;" />
+  <title>SAMP Launcher</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="background-glow"></div>
+
+  <button id="settings-btn" class="settings-button" title="Setting Directory GTA SA">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M19.4 13.5a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V19.5a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H4.5a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H10.5a1.65 1.65 0 0 0 1-1.51V4.5a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V10.5a1.65 1.65 0 0 0 1.51 1H19.5a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <main class="launcher-container">
+    <div class="server-card">
+      <div class="server-card__header">
+        <img src="../assets/logo.png" alt="Server Logo" class="server-card__logo" />
+        <div class="server-card__title-group">
+          <h1 class="server-card__name" id="server-name">GTA: Pinehill</h1>
+          <div class="server-card__status">
+            <span class="status-dot" id="status-dot"></span>
+            <span class="status-text" id="status-text">Memuat...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="server-card__info">
+        <div class="info-item">
+          <span class="info-label">IP Server</span>
+          <span class="info-value" id="server-ip">208.84.103.75:7012</span>
+        </div>
+        <div class="info-divider"></div>
+        <div class="info-item">
+          <span class="info-label">Jumlah Player</span>
+          <span class="info-value" id="player-count">- / -</span>
+        </div>
+      </div>
+
+      <button id="play-btn" class="play-button">
+        <span>Play</span>
+      </button>
+    </div>
+
+    <p class="footer-text">GTA: Pinehill &copy; 2026 - SAMP Launcher</p>
+  </main>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal-box">
+      <h2 class="modal-title">Connect Server</h2>
+      <p class="modal-subtitle">Masuk ke <span id="modal-server-ip">208.84.103.75:7012</span></p>
+
+      <div class="input-group">
+        <label for="username-input" class="input-label">Username</label>
+        <input
+          type="text"
+          id="username-input"
+          class="username-input"
+          placeholder="Masukkan Username"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="20"
+        />
+        <span class="input-hint">3-20 karakter: huruf, angka, underscore, atau [ ]</span>
+        <span id="error-message" class="error-message"></span>
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancel-btn" class="btn btn-cancel">Cancel</button>
+        <button id="connect-btn" class="btn btn-connect">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal-overlay" class="modal-overlay">
+    <div class="modal-box">
+      <h2 class="modal-title">Setting Directory GTA SA</h2>
+      <p class="modal-subtitle">Arahkan ke folder instalasi <span>GTA San Andreas</span> yang berisi samp.exe</p>
+
+      <div class="input-group">
+        <label for="directory-input" class="input-label">Directory GTA SA</label>
+        <div class="directory-picker">
+          <input
+            type="text"
+            id="directory-input"
+            class="username-input directory-input"
+            placeholder="Contoh: C:\Games\GTA San Andreas"
+            autocomplete="off"
+            spellcheck="false"
+            readonly
+          />
+          <button id="browse-btn" class="btn btn-browse" type="button">Browse</button>
+        </div>
+        <span id="settings-error-message" class="error-message"></span>
+      </div>
+
+      <div class="modal-actions">
+        <button id="settings-cancel-btn" class="btn btn-cancel">Cancel</button>
+        <button id="settings-save-btn" class="btn btn-connect">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
