@@ -1,14 +1,16 @@
 # SAMP Launcher
 
-Launcher desktop untuk server **NelloW Roleplay** (SA-MP) yang dibangun menggunakan **ElectronJS** dengan **HTML, CSS, dan Vanilla JavaScript** (tanpa framework frontend seperti React/Vue/Angular, dan tanpa Bootstrap/Tailwind).
+Launcher desktop untuk server **SA-MP** yang dibangun menggunakan **ElectronJS** dengan **HTML, CSS, dan Vanilla JavaScript** (tanpa framework frontend seperti React/Vue/Angular, dan tanpa Bootstrap/Tailwind). Project ini dibuat sebagai base/awal launcher, tanpa mengikat ke nama server tertentu.
 
-Launcher ini menampilkan informasi server (nama, status, IP, jumlah player), dan saat tombol **Play** ditekan akan muncul popup untuk memasukkan username, lalu menjalankan `samp.exe` dengan command line:
+Saat tombol **Play** ditekan akan muncul popup untuk memasukkan username, lalu menjalankan `samp.exe` dengan command line:
 
 ```
 samp.exe 127.0.0.1:7777 PlayerName
 ```
 
 Launcher juga dilengkapi fitur **Setting Directory GTA SA** (ikon gear di pojok kanan atas) untuk mengatur lokasi folder instalasi GTA San Andreas tempat `samp.exe` berada, sehingga launcher tahu executable mana yang harus dijalankan.
+
+Selain itu, launcher terintegrasi dengan **Discord Rich Presence** sehingga status aktivitas pengguna (sedang berada di launcher, sedang bermain di server, dsb) akan tampil otomatis di profil Discord mereka.
 
 ---
 
@@ -37,6 +39,7 @@ samp-launcher/
 - Node.js versi 18 LTS atau lebih baru
 - npm (sudah termasuk dalam instalasi Node.js)
 - Sistem operasi untuk build target Windows: **Debian Linux** (menggunakan Wine untuk proses packaging NSIS)
+- Aplikasi Discord Desktop berjalan di background (untuk fitur Discord Rich Presence)
 
 ---
 
@@ -48,7 +51,7 @@ Masuk ke folder project, lalu jalankan:
 npm install
 ```
 
-Perintah ini akan mengunduh `electron` dan `electron-builder` sesuai yang sudah didefinisikan di `package.json`.
+Perintah ini akan mengunduh `electron`, `electron-builder`, dan `@xhayper/discord-rpc` sesuai yang sudah didefinisikan di `package.json`.
 
 ---
 
@@ -58,7 +61,7 @@ Perintah ini akan mengunduh `electron` dan `electron-builder` sesuai yang sudah 
 npm start
 ```
 
-Perintah ini akan membuka window Electron berukuran 900x550 dengan tampilan launcher NelloW Roleplay.
+Perintah ini akan membuka window Electron berukuran 900x550 dengan tampilan launcher.
 
 ---
 
@@ -203,6 +206,21 @@ Jika pengguna menekan tombol **Play** lalu **Connect** tanpa terlebih dahulu men
 - Penyimpanan dan pembacaan pengaturan dilakukan lewat IPC handler `save-settings` dan `get-settings`, keduanya dijembatani secara aman ke renderer lewat `contextBridge` di `preload.js` (`window.sampLauncher.saveSettings()` dan `window.sampLauncher.getSettings()`).
 - Saat tombol **Connect** ditekan, `main.js` akan membaca `config.json`, menggabungkan directory yang tersimpan dengan `samp.exe`, memvalidasi keberadaan file tersebut, lalu menjalankannya menggunakan `child_process.spawn` dengan `cwd` diarahkan ke folder GTA SA agar dependency game (data, models, dsb) dapat terbaca dengan benar oleh `samp.exe`.
 
+---
+
+## Fitur Discord Rich Presence
+
+Ditambahkan integrasi **Discord Rich Presence** menggunakan library `@xhayper/discord-rpc`, sehingga aktivitas pengguna saat menggunakan launcher dapat ditampilkan di profil Discord mereka.
+
+### Implementasi Teknis
+
+- Koneksi RPC diinisialisasi di `main.js` menggunakan `Client` dari `@xhayper/discord-rpc`, dengan `clientId` aplikasi Discord yang didaftarkan sendiri lewat Discord Developer Portal.
+- RPC hanya aktif jika Discord Desktop terdeteksi berjalan di background; jika tidak terdeteksi, launcher tetap berjalan normal tanpa menampilkan error ke pengguna (fitur bersifat opsional/non-blocking).
+- Presence otomatis dibersihkan (`client.user?.clearActivity()`) saat aplikasi launcher ditutup, agar status tidak "menggantung" di profil Discord pengguna.
+- Reconnect otomatis ditangani lewat event `disconnected` dari `discord-rpc`, sehingga jika Discord baru dibuka setelah launcher berjalan, RPC akan otomatis mencoba connect ulang tanpa perlu restart launcher.
+
+---
+
 ## Catatan Penting
 
 - File `samp.exe` **tidak disertakan** dalam project ini karena merupakan file resmi dari game client GTA: San Andreas multiplayer (SA-MP) dan bukan bagian dari source code launcher. Launcher akan menjalankan `samp.exe` dari folder yang diatur pengguna lewat menu **Setting**.
@@ -212,6 +230,7 @@ Jika pengguna menekan tombol **Play** lalu **Connect** tanpa terlebih dahulu men
   ```
 - Proses menjalankan `samp.exe` menggunakan `child_process.spawn` dari Node.js, dipanggil dari `main.js` melalui IPC (`ipcMain.handle` / `ipcRenderer.invoke`) yang dijembatani secara aman lewat `preload.js` menggunakan `contextBridge`.
 - Window launcher berukuran tetap **900x550**, tidak resizable, dan tidak bisa fullscreen (`fullscreenable: false`, `resizable: false`, `maximizable: false`).
+- Fitur Discord Rich Presence bersifat opsional dan tidak akan menghambat jalannya launcher maupun proses `samp.exe` jika Discord tidak aktif.
 
 ---
 
@@ -219,10 +238,11 @@ Jika pengguna menekan tombol **Play** lalu **Connect** tanpa terlebih dahulu men
 
 - [Electron](https://www.electronjs.org/) — framework untuk membangun aplikasi desktop lintas platform menggunakan JavaScript.
 - [Electron Builder](https://www.electron.build/) — tool untuk packaging dan build installer aplikasi Electron.
+- [@xhayper/discord-rpc](https://www.npmjs.com/package/@xhayper/discord-rpc) — library untuk integrasi Discord Rich Presence.
 - HTML5, CSS3, dan Vanilla JavaScript (ES6+) — tanpa framework frontend tambahan.
 
 ---
 
 ## Lisensi
 
-MIT License — bebas digunakan dan dimodifikasi untuk keperluan komunitas NelloW Roleplay.
+MIT License — bebas digunakan dan dimodifikasi.
