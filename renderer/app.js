@@ -10,6 +10,7 @@
     "&port=" +
     SERVER_PORT;
   const STATUS_REFRESH_INTERVAL_MS = 15000;
+  const NICKNAME_PATTERN = /^[A-Za-z0-9_\[\]]{3,20}$/;
 
   const playBtn = document.getElementById("play-btn");
   const modalOverlay = document.getElementById("modal-overlay");
@@ -26,6 +27,10 @@
   const browseBtn = document.getElementById("browse-btn");
   const directoryInput = document.getElementById("directory-input");
   const settingsErrorMessage = document.getElementById("settings-error-message");
+  const discordStatusDot = document.getElementById("discord-status-dot");
+  const discordStatusText = document.getElementById("discord-status-text");
+  const themeToggleBtn = document.getElementById("theme-toggle-btn");
+  const themeToggleIcon = document.getElementById("theme-toggle-icon");
 
   const serverNameEl = document.getElementById("server-name");
   const statusDotEl = document.getElementById("status-dot");
@@ -33,12 +38,28 @@
   const playerCountEl = document.getElementById("player-count");
 
   let toastTimeout = null;
+  let lastServerName = "GTA: Pinehill";
+  let lastOnlinePlayers = 0;
+  let lastMaxPlayers = 0;
 
-  function openModal() {
-    usernameInput.value = "";
+  async function openModal() {
     clearError();
     modalOverlay.classList.add("active");
-    setTimeout(() => usernameInput.focus(), 150);
+
+    usernameInput.value = "";
+    try {
+      const settings = await window.sampLauncher.getSettings();
+      if (settings && settings.lastUsername) {
+        usernameInput.value = settings.lastUsername;
+      }
+    } catch (err) {
+      // gagal load username terakhir bukan hal fatal, biarkan input kosong
+    }
+
+    setTimeout(() => {
+      usernameInput.focus();
+      usernameInput.select();
+    }, 150);
   }
 
   function closeModal() {
@@ -64,7 +85,10 @@
     statusTextEl.textContent = "Online";
     if (serverName) {
       serverNameEl.textContent = serverName;
+      lastServerName = serverName;
     }
+    lastOnlinePlayers = online;
+    lastMaxPlayers = max;
     playerCountEl.textContent = online + " / " + max;
   }
 
@@ -118,6 +142,35 @@
     settingsErrorMessage.classList.remove("show");
   }
 
+  async function refreshDiscordStatus() {
+    discordStatusDot.className = "discord-status-dot";
+    discordStatusText.textContent = "Mengecek status Discord...";
+
+    try {
+      const status = await window.sampLauncher.getDiscordStatus();
+
+      if (!status.configured) {
+        discordStatusDot.classList.add("offline");
+        discordStatusText.textContent =
+          "Discord Rich Presence belum dikonfigurasi (DISCORD_CLIENT_ID di main.js belum diisi dengan Application ID yang valid).";
+        return;
+      }
+
+      if (status.ready) {
+        discordStatusDot.classList.add("online");
+        discordStatusText.textContent = "Discord Rich Presence terhubung dan siap dipakai.";
+      } else {
+        discordStatusDot.classList.add("offline");
+        discordStatusText.textContent =
+          "Discord Rich Presence belum terhubung. Pastikan aplikasi Discord desktop sedang berjalan." +
+          (status.lastError ? " (" + status.lastError + ")" : "");
+      }
+    } catch (err) {
+      discordStatusDot.classList.add("offline");
+      discordStatusText.textContent = "Gagal mengecek status Discord: " + err.message;
+    }
+  }
+
   async function openSettingsModal() {
     clearSettingsError();
     settingsModalOverlay.classList.add("active");
@@ -128,6 +181,8 @@
     } catch (err) {
       showSettingsError("Gagal memuat pengaturan: " + err.message);
     }
+
+    refreshDiscordStatus();
   }
 
   function closeSettingsModal() {
@@ -176,6 +231,43 @@
     }
   }
 
+  const MOON_ICON_PATH =
+    '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>';
+  const SUN_ICON_PATH =
+    '<circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.55 1.55M18.25 18.25l1.55 1.55M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.55-1.55M18.25 5.75l1.55-1.55" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+
+  function applyTheme(theme) {
+    if (theme === "light") {
+      document.body.classList.add("theme-light");
+      themeToggleIcon.innerHTML = SUN_ICON_PATH;
+      themeToggleBtn.title = "Ganti ke Mode Gelap";
+    } else {
+      document.body.classList.remove("theme-light");
+      themeToggleIcon.innerHTML = MOON_ICON_PATH;
+      themeToggleBtn.title = "Ganti ke Mode Terang";
+    }
+  }
+
+  async function toggleTheme() {
+    const nextTheme = document.body.classList.contains("theme-light") ? "dark" : "light";
+    applyTheme(nextTheme);
+    try {
+      await window.sampLauncher.saveTheme(nextTheme);
+    } catch (err) {
+      // gagal simpan preferensi tema bukan hal fatal
+    }
+  }
+
+  async function initTheme() {
+    try {
+      const settings = await window.sampLauncher.getSettings();
+      applyTheme(settings && settings.theme === "light" ? "light" : "dark");
+    } catch (err) {
+      applyTheme("dark");
+    }
+  }
+
   function showToast(message, type) {
     if (toastTimeout) {
       clearTimeout(toastTimeout);
@@ -195,12 +287,21 @@
       return;
     }
 
+    if (!NICKNAME_PATTERN.test(playerName)) {
+      showError("Username hanya boleh huruf, angka, underscore, dan [ ], 3-20 karakter");
+      return;
+    }
+
     clearError();
     connectBtn.disabled = true;
     connectBtn.textContent = "Menghubungkan...";
 
     try {
-      const result = await window.sampLauncher.launchSamp(SERVER_IP, playerName);
+      const result = await window.sampLauncher.launchSamp(SERVER_IP, playerName, {
+        serverName: lastServerName,
+        onlinePlayers: lastOnlinePlayers,
+        maxPlayers: lastMaxPlayers
+      });
 
       if (result && result.success) {
         showToast(result.message || "SA-MP sedang dijalankan...", "success");
@@ -262,6 +363,9 @@
     }
   });
 
+  themeToggleBtn.addEventListener("click", toggleTheme);
+
+  initTheme();
   refreshServerStatus();
   setInterval(refreshServerStatus, STATUS_REFRESH_INTERVAL_MS);
 })();
