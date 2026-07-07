@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn, exec } = require("child_process");
 const { Client: DiscordRpcClient } = require("@xhayper/discord-rpc");
+
+app.setName("SAMP World");
 
 let mainWindow = null;
 
@@ -43,14 +45,208 @@ function writeLog(level, message) {
   }
 }
 
+const SERVERS_PATH = path.join(app.getPath("userData"), "servers.json");
+
+function readServers() {
+  try {
+    if (fs.existsSync(SERVERS_PATH)) {
+      const raw = fs.readFileSync(SERVERS_PATH, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item) => item && typeof item.host === "string" && typeof item.port === "number"
+        );
+      }
+    }
+  } catch (err) {
+    console.error("Gagal membaca servers.json:", err.message);
+  }
+  return [];
+}
+
+function writeServers(servers) {
+  try {
+    fs.mkdirSync(path.dirname(SERVERS_PATH), { recursive: true });
+    fs.writeFileSync(SERVERS_PATH, JSON.stringify(servers, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    writeLog("ERROR", "Gagal menyimpan servers.json: " + err.message);
+    return false;
+  }
+}
+const dgram = require("dgram");
+
+function decodeSampString(buffer) {
+  return buffer.toString("latin1");
+}
+
+function sendSampQuery(host, port, opcode, timeoutMs) {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket("udp4");
+    const hostParts = host.split(".");
+    const packet = Buffer.alloc(11);
+
+    packet.write("SAMP", 0, "ascii");
+    for (let i = 0; i < 4; i++) {
+      packet[4 + i] = parseInt(hostParts[i], 10) || 0;
+    }
+    packet[8] = port & 0xff;
+    packet[9] = (port >> 8) & 0xff;
+    packet[10] = opcode.charCodeAt(0);
+
+    const sentAt = Date.now();
+    let settled = false;
+
+    function finish(result) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch (err) {}
+      resolve(result);
+    }
+
+    const timer = setTimeout(() => finish(null), timeoutMs || 1500);
+
+    socket.on("message", (message) => {
+      const ping = Date.now() - sentAt;
+
+      if (message.length < 11) {
+        finish(null);
+        return;
+      }
+
+      finish({ body: message.slice(11), ping: ping });
+    });
+
+    socket.on("error", () => finish(null));
+
+    try {
+      socket.send(packet, 0, packet.length, port, host, (err) => {
+        if (err) {
+          finish(null);
+        }
+      });
+    } catch (err) {
+      finish(null);
+    }
+  });
+}
+
+async function queryServerInfo(host, port) {
+  const result = await sendSampQuery(host, port, "i");
+  if (!result) {
+    return null;
+  }
+
+  try {
+    const body = result.body;
+    let offset = 0;
+
+    const passworded = body.readUInt8(offset);
+    offset += 1;
+
+    const online = body.readUInt16LE(offset);
+    offset += 2;
+
+    const maxplayers = body.readUInt16LE(offset);
+    offset += 2;
+
+    let strlen = body.readUInt32LE(offset);
+    offset += 4;
+    const hostname = decodeSampString(body.slice(offset, offset + strlen));
+    offset += strlen;
+
+    strlen = body.readUInt32LE(offset);
+    offset += 4;
+    const gamemode = decodeSampString(body.slice(offset, offset + strlen));
+    offset += strlen;
+
+    strlen = body.readUInt32LE(offset);
+    offset += 4;
+    const mapname = decodeSampString(body.slice(offset, offset + strlen));
+    offset += strlen;
+
+    return {
+      hostname: hostname,
+      gamemode: gamemode,
+      mapname: mapname,
+      passworded: passworded === 1,
+      maxplayers: maxplayers,
+      online: online,
+      ping: result.ping
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+async function queryServerRules(host, port) {
+  const result = await sendSampQuery(host, port, "r");
+  if (!result) {
+    return null;
+  }
+
+  try {
+    const body = result.body;
+    let offset = 0;
+
+    let ruleCount = body.readUInt16LE(offset);
+    offset += 2;
+
+    const rules = {};
+
+    while (ruleCount > 0) {
+      let strlen = body.readUInt8(offset);
+      offset += 1;
+      const property = decodeSampString(body.slice(offset, offset + strlen));
+      offset += strlen;
+
+      strlen = body.readUInt8(offset);
+      offset += 1;
+      const value = decodeSampString(body.slice(offset, offset + strlen));
+      offset += strlen;
+
+      rules[property] = value;
+      ruleCount -= 1;
+    }
+
+    return rules;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchServerStatus(host, port) {
+  const info = await queryServerInfo(host, port);
+
+  if (!info) {
+    return { connected: false };
+  }
+
+  const rules = await queryServerRules(host, port);
+
+  return {
+    connected: true,
+    serverName: info.hostname || "",
+    gamemode: info.gamemode || "",
+    version: rules && typeof rules.version === "string" ? rules.version : "",
+    online: info.online,
+    max: info.maxplayers,
+    ping: info.ping
+  };
+}
+
 const DISCORD_CLIENT_ID = "1522511223940186253";
+const DISCORD_SERVER_URL = "https://discord.gg/b5wrXeehTm";
+const DISCORD_DOWNLOAD_URL = "https://github.com/derrick0930/SAMP-World/releases";
 const DISCORD_LOGO_URL = "https://raw.githubusercontent.com/derrick0930/SAMP-World/refs/heads/main/assets/logo.png";
+const DISCORD_LOGO_SMALL = "https://i.imgur.com/NWUGCLE.png";
 const DISCORD_ID_PATTERN = /^\d{15,25}$/;
 
-const SERVER_HOST = "208.84.103.75";
-const SERVER_PORT = 7012;
-const SERVER_STATUS_API =
-  "https://samp-api-blue.vercel.app/api/samp-server?host=" + SERVER_HOST + "&port=" + SERVER_PORT;
 const DISCORD_ACTIVITY_REFRESH_MS = 5000;
 
 let discordClient = null;
@@ -60,31 +256,8 @@ let discordLastError = "";
 let activityStartTimestamp = null;
 let discordRetryTimer = null;
 
-let activeSession = false;
+let activeSession = null; // { host, port }
 let activityRefreshTimer = null;
-
-async function fetchServerStatusForDiscord() {
-  try {
-    const response = await fetch(SERVER_STATUS_API);
-    if (!response.ok) {
-      return null;
-    }
-    const json = await response.json();
-    if (!json || !json.success || !json.data) {
-      return null;
-    }
-    const server = json.data.server || {};
-    const players = json.data.players || {};
-    return {
-      serverName: typeof server.name === "string" ? server.name : "",
-      online: typeof players.online === "number" ? players.online : 0,
-      max: typeof players.max === "number" ? players.max : 0
-    };
-  } catch (err) {
-    writeLog("ERROR", "Gagal fetch status server untuk Discord Rich Presence: " + err.message);
-    return null;
-  }
-}
 
 function connectDiscordClient(clientId) {
   if (discordClient) {
@@ -142,7 +315,7 @@ function initDiscordRpc() {
   }, 20000);
 }
 
-function setDiscordPlayingActivity(serverName, onlinePlayers, maxPlayers) {
+function setDiscordPlayingActivity(host, port, serverName, onlinePlayers, maxPlayers) {
   if (!discordReady || !discordClient || !discordClient.user) {
     return;
   }
@@ -151,23 +324,38 @@ function setDiscordPlayingActivity(serverName, onlinePlayers, maxPlayers) {
     activityStartTimestamp = Date.now();
   }
 
-  const safeServerName = serverName || "GTA: Pinehill";
+  const safeServerName = serverName || host + ":" + port;
   const safeOnline = typeof onlinePlayers === "number" && !isNaN(onlinePlayers) ? onlinePlayers : 0;
   const safeMax = typeof maxPlayers === "number" && !isNaN(maxPlayers) ? maxPlayers : 0;
 
   const activityPayload = {
-    details: safeServerName + "[" + safeOnline + "/" + safeMax + "]",
-    state: SERVER_HOST + ":" + SERVER_PORT,
+    details: safeServerName,
+    state: host + ":" + port,
     startTimestamp: activityStartTimestamp,
     instance: false
   };
 
   const trimmedLogoUrl = (DISCORD_LOGO_URL || "").trim();
+  const trimmedLogoSmall = (DISCORD_LOGO_SMALL || "").trim();
   if (trimmedLogoUrl.indexOf("https://") === 0) {
     activityPayload.largeImageKey = trimmedLogoUrl;
     activityPayload.largeImageText = "SA:MP World";
-    activityPayload.smallImageKey = trimmedLogoUrl;
-    activityPayload.smallImageText = "SA:MP World";
+    activityPayload.smallImageKey = trimmedLogoSmall;
+    activityPayload.smallImageText = safeOnline + "/" + safeMax + " Players";
+  }
+
+  const buttons = [];
+  const trimmedServerUrl = (DISCORD_SERVER_URL || "").trim();
+  const trimmedDownloadUrl = (DISCORD_DOWNLOAD_URL || "").trim();
+
+  if (trimmedServerUrl.indexOf("https://") === 0) {
+    buttons.push({ label: "Join Server", url: trimmedServerUrl });
+  }
+  if (trimmedDownloadUrl.indexOf("https://") === 0) {
+    buttons.push({ label: "Download Launcher", url: trimmedDownloadUrl });
+  }
+  if (buttons.length > 0) {
+    activityPayload.buttons = buttons;
   }
 
   discordClient.user.setActivity(activityPayload).catch((err) => {
@@ -187,12 +375,12 @@ function startDiscordActivityAutoRefresh() {
       return;
     }
 
-    const status = await fetchServerStatusForDiscord();
+    const status = await fetchServerStatus(activeSession.host, activeSession.port);
     if (!status) {
       return;
     }
 
-    setDiscordPlayingActivity(status.serverName, status.online, status.max);
+    setDiscordPlayingActivity(activeSession.host, activeSession.port, status.serverName, status.online, status.max);
   }, DISCORD_ACTIVITY_REFRESH_MS);
 }
 
@@ -205,7 +393,7 @@ function stopDiscordActivityAutoRefresh() {
 
 function clearDiscordActivity() {
   activityStartTimestamp = null;
-  activeSession = false;
+  activeSession = null;
   stopDiscordActivityAutoRefresh();
 
   if (!discordReady || !discordClient || !discordClient.user) {
@@ -349,7 +537,7 @@ function createWindow() {
     maximizable: false,
     backgroundColor: "#0f1115",
     icon: path.join(__dirname, "assets", "icon.ico"),
-    title: "SAMP Launcher",
+    title: "SA:MP World",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -368,7 +556,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  writeLog("INFO", "==================== SAMP Launcher dibuka ====================");
+  writeLog("INFO", "==================== SA:MP World dibuka ====================");
   createWindow();
   initDiscordRpc();
 
@@ -396,12 +584,83 @@ app.on("before-quit", () => {
   }
 });
 
+ipcMain.handle("get-servers", async () => {
+  return readServers();
+});
+
+ipcMain.handle("add-server", async (event, payload) => {
+  const host = payload && payload.host ? String(payload.host).trim() : "";
+  const port = payload && payload.port ? parseInt(payload.port, 10) : NaN;
+
+  if (!host) {
+    return { success: false, message: "IP/Host tidak boleh kosong" };
+  }
+
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { success: false, message: "Port tidak valid" };
+  }
+
+  const servers = readServers();
+  const alreadyExists = servers.some((item) => item.host === host && item.port === port);
+  if (alreadyExists) {
+    return { success: false, message: "Server ini sudah ada di daftar" };
+  }
+
+  const status = await fetchServerStatus(host, port);
+  if (!status || !status.connected) {
+    return {
+      success: false,
+      message: "Server tidak dapat dihubungi. Periksa kembali IP dan Port-nya."
+    };
+  }
+
+  servers.push({ host: host, port: port });
+  const saved = writeServers(servers);
+
+  if (!saved) {
+    return { success: false, message: "Gagal menyimpan server" };
+  }
+
+  writeLog("INFO", "Server ditambahkan ke daftar: " + host + ":" + port);
+
+  return { success: true, servers: servers };
+});
+
+ipcMain.handle("remove-server", async (event, payload) => {
+  const host = payload && payload.host ? String(payload.host).trim() : "";
+  const port = payload && payload.port ? parseInt(payload.port, 10) : NaN;
+
+  let servers = readServers();
+  servers = servers.filter((item) => !(item.host === host && item.port === port));
+  writeServers(servers);
+
+  writeLog("INFO", "Server dihapus dari daftar: " + host + ":" + port);
+
+  return { success: true, servers: servers };
+});
+
+ipcMain.handle("get-server-status", async (event, payload) => {
+  const host = payload && payload.host ? String(payload.host).trim() : "";
+  const port = payload && payload.port ? parseInt(payload.port, 10) : NaN;
+
+  if (!host || !Number.isInteger(port)) {
+    return null;
+  }
+
+  return fetchServerStatus(host, port);
+});
+
 ipcMain.handle("launch-samp", async (event, payload) => {
-  const serverIp = payload && payload.serverIp ? String(payload.serverIp) : "";
+  const host = payload && payload.host ? String(payload.host).trim() : "";
+  const port = payload && payload.port ? parseInt(payload.port, 10) : NaN;
   const playerName = payload && payload.playerName ? String(payload.playerName).trim() : "";
   const serverName = payload && payload.serverName ? String(payload.serverName) : "";
   const onlinePlayers = payload && typeof payload.onlinePlayers === "number" ? payload.onlinePlayers : 0;
   const maxPlayers = payload && typeof payload.maxPlayers === "number" ? payload.maxPlayers : 0;
+
+  if (!host || !Number.isInteger(port)) {
+    return { success: false, message: "Server tujuan tidak valid" };
+  }
 
   if (!playerName) {
     return { success: false, message: "Username tidak boleh kosong" };
@@ -446,7 +705,7 @@ ipcMain.handle("launch-samp", async (event, payload) => {
   writeConfig({ lastUsername: playerName });
 
   try {
-    const child = spawn(executablePath, [serverIp], {
+    const child = spawn(executablePath, [host + ":" + port], {
       cwd: gtaSaDirectory,
       detached: true,
       stdio: "ignore"
@@ -460,11 +719,11 @@ ipcMain.handle("launch-samp", async (event, payload) => {
 
     writeLog(
       "INFO",
-      "samp.exe dijalankan (PID " + child.pid + ") untuk connect ke " + serverIp + " sebagai " + playerName + "."
+      "samp.exe dijalankan (PID " + child.pid + ") untuk connect ke " + host + ":" + port + " sebagai " + playerName + "."
     );
 
-    activeSession = true;
-    setDiscordPlayingActivity(serverName, onlinePlayers, maxPlayers);
+    activeSession = { host: host, port: port };
+    setDiscordPlayingActivity(host, port, serverName, onlinePlayers, maxPlayers);
     startDiscordActivityAutoRefresh();
     monitorGtaProcessForDiscord();
 
@@ -515,12 +774,20 @@ ipcMain.handle("save-settings", async (event, payload) => {
   return { success: true, message: "Directory GTA SA berhasil disimpan", gtaSaDirectory };
 });
 
-ipcMain.handle("get-discord-status", async () => {
-  return {
-    configured: discordConfigured,
-    ready: discordReady,
-    lastError: discordLastError
-  };
+ipcMain.handle("open-discord-server", async () => {
+  const url = (DISCORD_SERVER_URL || "").trim();
+
+  if (url.indexOf("https://") !== 0) {
+    return { success: false, message: "Link Discord server belum diatur di main.js" };
+  }
+
+  try {
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (err) {
+    writeLog("ERROR", "Gagal membuka link Discord server: " + err.message);
+    return { success: false, message: "Gagal membuka Discord: " + err.message };
+  }
 });
 
 ipcMain.handle("save-theme", async (event, payload) => {

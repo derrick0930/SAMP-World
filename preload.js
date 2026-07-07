@@ -1,9 +1,14 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("sampLauncher", {
-  launchSamp: (serverIp, playerName, serverInfo) =>
+  getServers: () => ipcRenderer.invoke("get-servers"),
+  addServer: (host, port) => ipcRenderer.invoke("add-server", { host, port }),
+  removeServer: (host, port) => ipcRenderer.invoke("remove-server", { host, port }),
+  getServerStatus: (host, port) => ipcRenderer.invoke("get-server-status", { host, port }),
+  launchSamp: (host, port, playerName, serverInfo) =>
     ipcRenderer.invoke("launch-samp", {
-      serverIp,
+      host,
+      port,
       playerName,
       serverName: serverInfo && serverInfo.serverName,
       onlinePlayers: serverInfo && serverInfo.onlinePlayers,
@@ -13,6 +18,6 @@ contextBridge.exposeInMainWorld("sampLauncher", {
   saveSettings: (gtaSaDirectory) =>
     ipcRenderer.invoke("save-settings", { gtaSaDirectory }),
   selectDirectory: () => ipcRenderer.invoke("select-directory"),
-  getDiscordStatus: () => ipcRenderer.invoke("get-discord-status"),
-  saveTheme: (theme) => ipcRenderer.invoke("save-theme", { theme })
+  saveTheme: (theme) => ipcRenderer.invoke("save-theme", { theme }),
+  openDiscordServer: () => ipcRenderer.invoke("open-discord-server")
 });

@@ -38,11 +38,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico"
@@ -54,7 +58,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "artifactName": "SAMP-World-Setup.exe",
-      "shortcutName": "SA:MP World"
+      "shortcutName": "SAMP World"
     },
     "portable": {
       "artifactName": "SAMP-World-Portable.exe"
