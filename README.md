@@ -1,6 +1,8 @@
 # SA:MP World
 
-![SA:MP World Logo](https://raw.githubusercontent.com/derrick0930/SAMP-World/refs/heads/main/assets/logo.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/derrick0930/SAMP-World/refs/heads/main/assets/logo.png" alt="SA:MP World Logo" width="256">
+</p>
 
 Launcher desktop untuk server **SA-MP** yang dibangun menggunakan **ElectronJS** dengan **HTML, CSS, dan Vanilla JavaScript** (tanpa framework frontend seperti React/Vue/Angular, dan tanpa Bootstrap/Tailwind).
 
