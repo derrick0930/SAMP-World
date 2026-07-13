@@ -8,7 +8,7 @@ Launcher desktop untuk server **SA-MP** yang dibangun menggunakan **ElectronJS**
 
 Launcher mendukung **multi-server**: pengguna dapat menambah, menghapus, dan memilih server SA-MP sendiri dari daftar. Setiap server yang ditambahkan akan langsung divalidasi dan di-query informasinya (nama server, jumlah player, gamemode, map, versi, ping, dsb) secara langsung ke server tujuan menggunakan **UDP socket (`dgram`)**, mengikuti SA-MP Query Mechanism — tanpa bergantung pada API endpoint eksternal mana pun.
 
-Launcher juga dilengkapi fitur **Setting Directory GTA SA** (ikon gear) untuk mengatur lokasi folder instalasi GTA San Andreas tempat `samp.exe` berada, integrasi **Discord Rich Presence**, serta sistem **logging** internal untuk membantu troubleshooting.
+Launcher juga dilengkapi fitur **Setting Directory GTA SA** (ikon gear), **switch versi client SA-MP**, **pengecekan update aplikasi otomatis**, **chat starter kustom**, integrasi **Discord Rich Presence**, serta sistem **logging** internal untuk membantu troubleshooting.
 
 ---
 
@@ -32,7 +32,7 @@ SAMP-World/
 
 Selain itu, saat dijalankan, launcher akan membuat beberapa file konfigurasi/log secara otomatis di folder `userData` Electron (di Windows biasanya `%APPDATA%\SA:MP World\`):
 
-- `config.json` — menyimpan directory GTA SA, username terakhir yang dipakai, dan preferensi tema (dark/light).
+- `config.json` — menyimpan directory GTA SA, username terakhir yang dipakai, preferensi tema (dark/light), versi SA-MP client aktif, dan chat starter kustom.
 - `servers.json` — menyimpan daftar server SA-MP yang ditambahkan pengguna.
 - `SAMP-World.txt` — file log aplikasi.
 
@@ -44,8 +44,8 @@ Selain itu, saat dijalankan, launcher akan membuat beberapa file konfigurasi/log
 - npm (sudah termasuk dalam instalasi Node.js)
 - Sistem operasi untuk build target Windows: **Debian Linux** (menggunakan Wine untuk proses packaging NSIS)
 - Aplikasi Discord Desktop berjalan di background (untuk fitur Discord Rich Presence)
-- Koneksi jaringan yang mengizinkan komunikasi **UDP** keluar (digunakan untuk query informasi server)
-- Beberapa fitur (penulisan nickname ke Windows Registry, deteksi proses `gta_sa.exe` untuk Discord Rich Presence) hanya aktif di platform **Windows**; di platform lain fitur tersebut otomatis dilewati tanpa error
+- Koneksi jaringan yang mengizinkan komunikasi **UDP** keluar (digunakan untuk query informasi server) dan **HTTPS** keluar (digunakan untuk pengecekan update)
+- Beberapa fitur (penulisan nickname ke Windows Registry, deteksi proses `gta_sa.exe` untuk Discord Rich Presence, DLL injection) hanya aktif di platform **Windows**; di platform lain fitur tersebut otomatis dilewati tanpa error
 
 ---
 
@@ -237,18 +237,55 @@ Informasi tiap server (nama server, jumlah player, gamemode, map, versi, ping) *
 Sebelum menjalankan SA-MP, pengguna wajib mengatur lokasi folder instalasi GTA San Andreas terlebih dahulu:
 
 1. Klik ikon **gear** di pojok kanan atas window launcher.
-2. Klik tombol **Browse**, lalu pilih folder instalasi GTA San Andreas (folder yang berisi `samp.exe`) melalui dialog folder native Windows.
+2. Klik tombol **Browse**, lalu pilih folder instalasi GTA San Andreas melalui dialog folder native Windows, atau biarkan launcher mendeteksi lokasinya secara otomatis lewat Windows Registry.
 3. Klik **Save**.
-4. Launcher akan memvalidasi bahwa directory ada dan `samp.exe` benar-benar ditemukan di dalamnya. Jika tidak valid, akan muncul pesan error dan pengaturan tidak akan disimpan.
+4. Launcher akan memvalidasi bahwa directory yang dipilih valid. Jika tidak valid, akan muncul pesan error dan pengaturan tidak akan disimpan.
 5. Jika valid, directory akan disimpan secara permanen ke `config.json`, sehingga pengaturan tetap tersimpan meskipun launcher ditutup dan dibuka kembali.
 
 Jika pengguna menekan **Play** tanpa terlebih dahulu mengatur directory GTA SA, launcher akan menampilkan pesan error yang mengarahkan pengguna untuk mengatur directory lewat menu Setting terlebih dahulu.
 
 ### Implementasi Teknis
 
-- Pemilihan folder menggunakan dialog native Electron: `dialog.showOpenDialog` dengan `properties: ["openDirectory"]`, dipanggil dari proses main lewat IPC handler `select-directory`.
+- Deteksi lokasi GTA SA dilakukan otomatis lewat pembacaan Windows Registry; jika tidak ditemukan, pengguna diarahkan ke folder picker native sebagai fallback.
+- Pemilihan folder manual menggunakan dialog native Electron: `dialog.showOpenDialog` dengan `properties: ["openDirectory"]`, dipanggil dari proses main lewat IPC handler `select-directory`.
 - Penyimpanan dan pembacaan pengaturan dilakukan lewat IPC handler `save-settings` dan `get-settings`, dijembatani secara aman ke renderer lewat `contextBridge` di `preload.js`.
 - `config.json` juga menyimpan preferensi **tema** (dark/light) lewat IPC handler `save-theme`, dan **username terakhir** yang dipakai untuk login, agar bisa diisikan otomatis di percobaan berikutnya.
+
+---
+
+## Fitur Switch Versi SA-MP
+
+Launcher memungkinkan pengguna berpindah antar versi client SA-MP (misalnya 0.3.7, 0.3DL, dsb) langsung dari menu Setting, tanpa perlu mengganti file secara manual.
+
+### Implementasi Teknis
+
+- Daftar versi yang tersedia beserta lokasi filenya dikelola lewat IPC handler khusus, dan versi yang dipilih pengguna disimpan ke `config.json`.
+- Saat menjalankan **Play**, launcher menyesuaikan proses injeksi/launch dengan versi client yang sedang aktif.
+- Perpindahan versi tidak memengaruhi daftar server maupun pengaturan lain yang sudah tersimpan.
+
+---
+
+## Fitur Pengecekan Update
+
+Launcher secara otomatis memeriksa ketersediaan versi terbaru saat dibuka, agar pengguna selalu memakai build yang paling update.
+
+### Implementasi Teknis
+
+- Pengecekan dilakukan lewat permintaan HTTPS ke sumber rilis resmi saat aplikasi dibuka, dibandingkan dengan versi yang tertera di `package.json`.
+- Jika ditemukan versi baru, launcher menampilkan notifikasi kepada pengguna beserta tautan untuk mengunduh update.
+- Kegagalan pengecekan update (misalnya tidak ada koneksi internet) tidak menghentikan jalannya launcher.
+
+---
+
+## Fitur Custom Launcher Chat Starter
+
+Pengguna dapat mengatur pesan chat starter kustom yang otomatis dikirim/terisi saat memulai sesi bermain, agar tidak perlu mengetik ulang setiap kali connect ke server.
+
+### Implementasi Teknis
+
+- Pesan chat starter kustom disimpan oleh pengguna lewat UI launcher dan disimpan ke `config.json`.
+- Saat proses `samp.exe`/`gta_sa.exe` berhasil dijalankan, launcher meneruskan chat starter yang sudah diatur untuk digunakan pada sesi tersebut.
+- Fitur ini bersifat opsional; jika tidak diatur, launcher berjalan seperti biasa tanpa chat starter.
 
 ---
 
@@ -257,13 +294,10 @@ Jika pengguna menekan **Play** tanpa terlebih dahulu mengatur directory GTA SA, 
 Saat pengguna menekan **Play** pada server yang dipilih dan memasukkan username, launcher melakukan langkah berikut lewat IPC handler `launch-samp`:
 
 1. Validasi username: hanya boleh huruf, angka, underscore, dan tanda kurung siku `[ ]`, dengan panjang 3–20 karakter.
-2. Validasi bahwa directory GTA SA sudah diatur dan `samp.exe` ada di dalamnya.
+2. Validasi bahwa directory GTA SA sudah diatur dan valid untuk versi SA-MP yang sedang aktif.
 3. Di Windows, nickname yang dipilih pengguna ditulis ke Windows Registry (`HKCU\SOFTWARE\SAMP\PlayerName`) menggunakan `reg.exe`, agar terbaca oleh SA-MP. Di platform selain Windows, langkah ini otomatis dilewati.
 4. Username yang dipakai disimpan ke `config.json` sebagai `lastUsername`.
-5. `samp.exe` dijalankan menggunakan `child_process.spawn` dengan argumen `host:port` dari server yang dipilih, dan `cwd` diarahkan ke folder GTA SA agar dependency game (data, models, dsb) dapat terbaca dengan benar:
-   ```
-   samp.exe <host>:<port>
-   ```
+5. Di Windows, launcher menjalankan `gta_sa.exe` secara langsung menggunakan helper injector (`injector.exe`) yang meng-inject `samp.dll` ke dalam proses game, dengan `cwd` diarahkan ke folder GTA SA agar dependency game (data, models, dsb) dapat terbaca dengan benar.
 6. Proses dijalankan secara `detached` sehingga tidak terikat pada siklus hidup launcher.
 7. Setelah berhasil terhubung, launcher mulai memantau status server aktif untuk keperluan Discord Rich Presence (lihat bagian berikutnya).
 
@@ -298,12 +332,12 @@ Launcher mencatat log internal untuk membantu troubleshooting, tersimpan di file
 
 ## Catatan Penting
 
-- File `samp.exe` **tidak disertakan** dalam project ini karena merupakan file resmi dari game client GTA: San Andreas multiplayer (SA-MP) dan bukan bagian dari source code launcher. Launcher akan menjalankan `samp.exe` dari folder yang diatur pengguna lewat menu **Setting**.
+- File `samp.exe`/`samp.dll` **tidak disertakan** dalam project ini karena merupakan file resmi dari game client GTA: San Andreas multiplayer (SA-MP) dan bukan bagian dari source code launcher.
 - Informasi server (nama, jumlah player, gamemode, versi) didapat langsung lewat query UDP (`dgram`) ke masing-masing server, **bukan** lewat API endpoint eksternal.
-- Nickname yang dikirim ke SA-MP tidak lagi dilewatkan sebagai argumen command line, melainkan ditulis ke Windows Registry sebelum `samp.exe` dijalankan (khusus Windows).
+- Nickname yang dikirim ke SA-MP ditulis ke Windows Registry sebelum game dijalankan (khusus Windows).
 - Semua komunikasi antara proses main dan renderer menggunakan IPC (`ipcMain.handle` / `ipcRenderer.invoke`) yang dijembatani secara aman lewat `preload.js` menggunakan `contextBridge`.
 - Window launcher berukuran tetap **900x550**, tidak resizable, dan tidak bisa fullscreen (`fullscreenable: false`, `resizable: false`, `maximizable: false`).
-- Fitur Discord Rich Presence, penulisan nickname ke registry, dan pemantauan proses game bersifat opsional/non-blocking dan tidak akan menghentikan jalannya launcher jika tidak tersedia (misalnya di platform non-Windows atau Discord tidak aktif).
+- Fitur Discord Rich Presence, penulisan nickname ke registry, pemantauan proses game, dan pengecekan update bersifat opsional/non-blocking dan tidak akan menghentikan jalannya launcher jika tidak tersedia (misalnya di platform non-Windows, Discord tidak aktif, atau tidak ada koneksi internet).
 
 ---
 
