@@ -20,6 +20,11 @@ SAMP-World/
 ├── package.json
 ├── main.js
 ├── preload.js
+├── installer.nsh
+├── bin/
+│   ├── bin/version/
+│   ├── bin/shared/
+│   ├── client/
 ├── renderer/
 │   ├── index.html
 │   ├── style.css
