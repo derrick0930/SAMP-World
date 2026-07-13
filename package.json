@@ -1,6 +1,6 @@
 {
   "name": "samp-launcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SA:MP World - Launcher resmi untuk server GTA: Pinehill",
   "main": "main.js",
   "author": "GTA: Pinehill",
@@ -34,6 +34,13 @@
       "assets/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "bin/",
+        "to": "bin/",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
       "target": [
         {
@@ -53,12 +60,14 @@
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
       "artifactName": "SAMP-World-Setup.exe",
-      "shortcutName": "SAMP World"
+      "shortcutName": "SAMP World",
+      "include": "installer.nsh",
+      "warningsAsErrors": false
     },
     "portable": {
       "artifactName": "SAMP-World-Portable.exe"

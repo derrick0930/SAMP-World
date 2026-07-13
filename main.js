@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn, exec } = require("child_process");
+const https = require("https");
 const { Client: DiscordRpcClient } = require("@xhayper/discord-rpc");
 
 app.setName("SAMP World");
@@ -236,7 +237,8 @@ async function fetchServerStatus(host, port) {
     version: rules && typeof rules.version === "string" ? rules.version : "",
     online: info.online,
     max: info.maxplayers,
-    ping: info.ping
+    ping: info.ping,
+    passworded: !!info.passworded
   };
 }
 
@@ -246,6 +248,123 @@ const DISCORD_DOWNLOAD_URL = "https://github.com/derrick0930/SAMP-World/releases
 const DISCORD_LOGO_URL = "https://raw.githubusercontent.com/derrick0930/SAMP-World/refs/heads/main/assets/logo.png";
 const DISCORD_LOGO_SMALL = "https://i.imgur.com/NWUGCLE.png";
 const DISCORD_ID_PATTERN = /^\d{15,25}$/;
+
+// ==== Update Checker (GitHub Releases) ====
+const UPDATE_CHECK_REPO_OWNER = "derrick0930";
+const UPDATE_CHECK_REPO_NAME = "SAMP-World";
+const UPDATE_CHECK_API_URL =
+  "https://api.github.com/repos/" + UPDATE_CHECK_REPO_OWNER + "/" + UPDATE_CHECK_REPO_NAME + "/releases/latest";
+const UPDATE_CHECK_RELEASES_PAGE_URL =
+  "https://github.com/" + UPDATE_CHECK_REPO_OWNER + "/" + UPDATE_CHECK_REPO_NAME + "/releases";
+const UPDATE_CHECK_TIMEOUT_MS = 8000;
+
+// Ambil data release terbaru dari GitHub REST API. GitHub API mewajibkan
+// header User-Agent, kalau tidak diisi request akan ditolak (403).
+function fetchLatestGithubRelease() {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      UPDATE_CHECK_API_URL,
+      {
+        headers: {
+          "User-Agent": "SAMP-World-Launcher",
+          Accept: "application/vnd.github+json"
+        },
+        timeout: UPDATE_CHECK_TIMEOUT_MS
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume(); // buang body supaya koneksi ditutup dengan benar
+          reject(new Error("GitHub API status " + res.statusCode));
+          return;
+        }
+
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("Timeout saat menghubungi GitHub API"));
+    });
+    req.on("error", (err) => reject(err));
+  });
+}
+
+// Bandingkan dua versi semver sederhana ("1.2.3"). Return true kalau
+// latestVersion lebih baru dari currentVersion.
+function isNewerVersion(latestVersion, currentVersion) {
+  const clean = (v) => String(v || "").replace(/^v/i, "").split("-")[0];
+  const latestParts = clean(latestVersion).split(".").map((n) => parseInt(n, 10) || 0);
+  const currentParts = clean(currentVersion).split(".").map((n) => parseInt(n, 10) || 0);
+  const maxLen = Math.max(latestParts.length, currentParts.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const l = latestParts[i] || 0;
+    const c = currentParts[i] || 0;
+    if (l > c) return true;
+    if (l < c) return false;
+  }
+  return false;
+}
+
+// Dipanggil sekali saat launcher dibuka. Kalau ada versi baru di GitHub
+// Releases, tampilkan popup native (dialog.showMessageBox). Kalau tidak ada
+// update (atau gagal cek, mis. tidak ada internet), TIDAK ada popup sama
+// sekali -- cukup dicatat ke log.
+async function checkForUpdatesAndNotify() {
+  try {
+    const release = await fetchLatestGithubRelease();
+    const latestTag = release && release.tag_name;
+    const currentVersion = app.getVersion();
+
+    if (!latestTag) {
+      writeLog("WARN", "Update check: response GitHub tidak punya tag_name.");
+      return;
+    }
+
+    writeLog("INFO", "Update check: versi terpasang " + currentVersion + ", versi terbaru di GitHub " + latestTag);
+
+    if (!isNewerVersion(latestTag, currentVersion)) {
+      return; // sudah versi terbaru, tidak ada popup
+    }
+
+    const releaseUrl = (release.html_url) || UPDATE_CHECK_RELEASES_PAGE_URL;
+    const releaseNotes = release.body ? String(release.body).slice(0, 500) : "";
+
+    const result = await dialog.showMessageBox({
+      type: "info",
+      title: "Update Tersedia",
+      message: "Versi baru SA:MP World tersedia: " + latestTag,
+      detail:
+        "Kamu memakai versi " + currentVersion + ", versi terbaru adalah " + latestTag + "." +
+        (releaseNotes ? "\n\nCatatan rilis:\n" + releaseNotes : ""),
+      buttons: ["Download", "Nanti"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+
+    if (result.response === 0) {
+      shell.openExternal(releaseUrl);
+    }
+  } catch (err) {
+    // Gagal cek update (tidak ada internet, rate-limit GitHub, dsb) --
+    // tidak fatal, tidak ada popup, cukup dicatat ke log.
+    writeLog("WARN", "Update check gagal: " + err.message);
+  }
+}
+
+
 
 const DISCORD_ACTIVITY_REFRESH_MS = 5000;
 
@@ -500,6 +619,85 @@ function writeConfig(partialConfig) {
 
 const NICKNAME_PATTERN = /^[A-Za-z0-9_\[\]]{3,20}$/;
 
+// Mapping versi yang muncul di UI -> nama folder di bin/versions/ (relatif, tanpa karakter titik
+// supaya aman dipakai sebagai nama folder di semua OS). Setiap folder wajib berisi file samp.dll
+// resmi untuk versi tersebut (didapat dari installer resmi SA-MP masing-masing versi), ditaruh
+// manual oleh developer sebelum build -- bukan sesuatu yang di-generate otomatis.
+const SAMP_VERSION_FOLDER_MAP = {
+  "0.3.7-R1": "037-R1",
+  "0.3.7-R2": "037-R2",
+  "0.3.7-R3": "037-R3",
+  "0.3.7-R3-1": "037-R3-1",
+  "0.3.7-R4": "037-R4",
+  "0.3.7-R5": "037-R5",
+  "0.3.DL": "03DL"
+};
+const DEFAULT_SAMP_VERSION = "0.3.DL";
+
+function resolveVersionDllPath(sampVersion) {
+  const folder = SAMP_VERSION_FOLDER_MAP[sampVersion];
+  if (!folder) {
+    return null;
+  }
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, "bin", "versions")
+    : path.join(__dirname, "bin", "versions");
+  return path.join(base, folder, "samp.dll");
+}
+
+// samp/shared: file-file GENERIK (bukan spesifik per-versi) yang dibutuhkan
+// GTA SA supaya bisa jalan sebagai client SA-MP -- mirip mekanisme open.mp
+// "copySharedFilesIntoGameFolder". Dibundel di bin/shared/, isinya apa pun
+// yang perlu ada di folder GTA SA selain samp.dll versi terpilih.
+// Tujuannya: pengguna cukup install launcher ini + GTA SA vanilla saja, tanpa
+// perlu install client SA-MP resmi terlebih dahulu -- launcher yang menyiapkan
+// semuanya secara otomatis.
+function resolveSharedFilesDir() {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, "bin", "shared")
+    : path.join(__dirname, "bin", "shared");
+  return base;
+}
+
+// Copy rekursif: file yang belum ada di gtaSaDirectory akan disalin dari
+// bin/shared/. File yang sudah ada TIDAK ditimpa (supaya tidak merusak
+// instalasi SA-MP asli milik pengguna kalau kebetulan sudah ada).
+function copyMissingSharedFiles(srcDir, destDir) {
+  if (!fs.existsSync(srcDir)) {
+    return;
+  }
+  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(srcDir, entry.name);
+    const destPath = path.join(destDir, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(destPath, { recursive: true });
+      copyMissingSharedFiles(srcPath, destPath);
+    } else if (!fs.existsSync(destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function ensureSharedFilesInstalled(gtaSaDirectory) {
+  const sharedDir = resolveSharedFilesDir();
+  try {
+    copyMissingSharedFiles(sharedDir, gtaSaDirectory);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+
+// yang di-inject SETELAH samp.dll versi terpilih. Dibundel di bin/client/.
+function resolveClientDllPath() {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, "bin", "client")
+    : path.join(__dirname, "bin", "client");
+  return path.join(base, "saworld-client.dll");
+}
+
 function setSampPlayerNameRegistry(playerName) {
   return new Promise((resolve) => {
     if (process.platform !== "win32") {
@@ -550,13 +748,54 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    // Cek update sesudah window kelihatan, supaya popup-nya (kalau ada update)
+    // muncul di atas window launcher, bukan sebelum window sempat render.
+    checkForUpdatesAndNotify();
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
+// Dipanggil sekali saat startup: kalau installer NSIS sempat menulis file
+// penanda "pending-gtasa-path.txt" (dari halaman custom pemilihan folder GTA SA
+// saat setup), pindahkan isinya ke config.json lewat writeConfig, siapkan file
+// shared, lalu hapus file penanda supaya tidak diproses berulang di run berikutnya.
+function applyPendingGtaSaPathFromInstaller() {
+  const markerPath = path.join(app.getPath("userData"), "pending-gtasa-path.txt");
+  if (!fs.existsSync(markerPath)) {
+    return;
+  }
+
+  try {
+    const gtaSaDirectory = fs.readFileSync(markerPath, "utf8").trim();
+    if (gtaSaDirectory && fs.existsSync(path.join(gtaSaDirectory, "gta_sa.exe"))) {
+      writeConfig({ gtaSaDirectory });
+      const sharedResult = ensureSharedFilesInstalled(gtaSaDirectory);
+      if (!sharedResult.success) {
+        writeLog("WARN", "Gagal menyiapkan shared files dari path installer: " + sharedResult.message);
+      }
+      writeLog("INFO", "Directory GTA SA dari installer diterapkan otomatis: " + gtaSaDirectory);
+    } else {
+      writeLog("WARN", "Path GTA SA dari installer tidak valid, dilewati: " + gtaSaDirectory);
+    }
+  } catch (err) {
+    writeLog("ERROR", "Gagal membaca pending-gtasa-path.txt: " + err.message);
+  } finally {
+    try {
+      fs.unlinkSync(markerPath);
+    } catch (err) {
+      // tidak fatal kalau gagal hapus, paling cuma diproses ulang sekali lagi
+    }
+  }
+}
+
 app.whenReady().then(() => {
   writeLog("INFO", "==================== SA:MP World dibuka ====================");
+  applyPendingGtaSaPathFromInstaller();
   createWindow();
   initDiscordRpc();
 
@@ -657,6 +896,10 @@ ipcMain.handle("launch-samp", async (event, payload) => {
   const serverName = payload && payload.serverName ? String(payload.serverName) : "";
   const onlinePlayers = payload && typeof payload.onlinePlayers === "number" ? payload.onlinePlayers : 0;
   const maxPlayers = payload && typeof payload.maxPlayers === "number" ? payload.maxPlayers : 0;
+  const serverPassword = payload && payload.serverPassword ? String(payload.serverPassword) : "";
+  const sampVersion = payload && payload.sampVersion && SAMP_VERSION_FOLDER_MAP[payload.sampVersion]
+    ? payload.sampVersion
+    : DEFAULT_SAMP_VERSION;
 
   if (!host || !Number.isInteger(port)) {
     return { success: false, message: "Server tujuan tidak valid" };
@@ -684,13 +927,52 @@ ipcMain.handle("launch-samp", async (event, payload) => {
     };
   }
 
-  const executablePath = path.join(gtaSaDirectory, "samp.exe");
+  // samp_launcher.exe dibundel bersama app (lihat extraResources di package.json),
+  // bukan diambil dari folder GTA SA seperti samp.exe.
+  const launcherPath = app.isPackaged
+    ? path.join(process.resourcesPath, "bin", "samp_launcher.exe")
+    : path.join(__dirname, "bin", "samp_launcher.exe");
 
-  if (!fs.existsSync(executablePath)) {
-    writeLog("ERROR", "samp.exe tidak ditemukan di: " + executablePath);
+  if (!fs.existsSync(launcherPath)) {
+    writeLog("ERROR", "samp_launcher.exe tidak ditemukan di: " + launcherPath);
     return {
       success: false,
-      message: "samp.exe tidak ditemukan di directory yang diatur. Periksa kembali di menu Setting."
+      message: "samp_launcher.exe tidak ditemukan. Coba install ulang aplikasi."
+    };
+  }
+
+  // Pastikan file-file umum (bukan spesifik versi) sudah ada di folder GTA SA.
+  // Ini yang bikin launcher bisa jalan walau pengguna belum pernah install
+  // client SA-MP resmi sama sekali -- cukup GTA SA vanilla + launcher ini.
+  const sharedResult = ensureSharedFilesInstalled(gtaSaDirectory);
+  if (!sharedResult.success) {
+    writeLog("ERROR", "Gagal menyiapkan file shared SAMP: " + sharedResult.message);
+    return {
+      success: false,
+      message: "Gagal menyiapkan file pendukung SAMP: " + sharedResult.message
+    };
+  }
+
+  const versionDllPath = resolveVersionDllPath(sampVersion);
+  if (!versionDllPath || !fs.existsSync(versionDllPath)) {
+    writeLog("ERROR", "samp.dll untuk versi " + sampVersion + " tidak ditemukan di: " + versionDllPath);
+    return {
+      success: false,
+      message: "File samp.dll untuk versi " + sampVersion + " tidak ditemukan. Coba install ulang aplikasi."
+    };
+  }
+
+  const sampDllPath = path.join(gtaSaDirectory, "samp.dll");
+  try {
+    // Timpa samp.dll di folder GTA SA dengan versi yang dipilih pengguna,
+    // supaya samp_launcher.exe (yang mencari "samp.dll" di gtaDir) selalu
+    // meng-inject versi yang benar sesuai pilihan user.
+    fs.copyFileSync(versionDllPath, sampDllPath);
+  } catch (err) {
+    writeLog("ERROR", "Gagal menyalin samp.dll versi " + sampVersion + " ke folder GTA SA: " + err.message);
+    return {
+      success: false,
+      message: "Gagal menyiapkan samp.dll versi " + sampVersion + ": " + err.message
     };
   }
 
@@ -702,24 +984,43 @@ ipcMain.handle("launch-samp", async (event, payload) => {
     );
   }
 
-  writeConfig({ lastUsername: playerName });
+  writeConfig({ lastUsername: playerName, lastSampVersion: sampVersion });
 
   try {
-    const child = spawn(executablePath, [host + ":" + port], {
+    const clientDllPath = resolveClientDllPath();
+    const clientDllAvailable = fs.existsSync(clientDllPath);
+    if (!clientDllAvailable) {
+      writeLog("WARN", "saworld-client.dll tidak ditemukan di: " + clientDllPath + " (lanjut tanpa modul tambahan).");
+    }
+    // Slot ke-6 (dllPath) sengaja dikosongkan: samp.dll versi terpilih sudah
+    // di-copy ke gtaSaDirectory\samp.dll di atas, jadi samp_launcher.exe pakai
+    // fallback default-nya sendiri. clientDllPath (saworld-client.dll) opsional,
+    // di-inject SETELAH samp.dll -- persis pola open.mp (samp.dll + omp-client.dll).
+    const launcherArgs = [
+      playerName,
+      host,
+      String(port),
+      gtaSaDirectory,
+      serverPassword,
+      "",
+      clientDllAvailable ? clientDllPath : ""
+    ];
+
+    const child = spawn(launcherPath, launcherArgs, {
       cwd: gtaSaDirectory,
       detached: true,
       stdio: "ignore"
     });
 
     child.on("error", (err) => {
-      writeLog("ERROR", "Gagal menjalankan samp.exe: " + err.message);
+      writeLog("ERROR", "Gagal menjalankan samp_launcher.exe: " + err.message);
     });
 
     child.unref();
 
     writeLog(
       "INFO",
-      "samp.exe dijalankan (PID " + child.pid + ") untuk connect ke " + host + ":" + port + " sebagai " + playerName + "."
+      "samp_launcher.exe dijalankan (PID " + child.pid + ") versi " + sampVersion + " untuk connect ke " + host + ":" + port + " sebagai " + playerName + "."
     );
 
     activeSession = { host: host, port: port };
@@ -732,10 +1033,10 @@ ipcMain.handle("launch-samp", async (event, payload) => {
       message: "Menyambungkan sebagai " + playerName + " ke server..."
     };
   } catch (error) {
-    writeLog("ERROR", "Exception saat menjalankan samp.exe: " + error.message);
+    writeLog("ERROR", "Exception saat menjalankan samp_launcher.exe: " + error.message);
     return {
       success: false,
-      message: "Gagal menjalankan samp.exe: " + error.message
+      message: "Gagal menjalankan samp_launcher.exe: " + error.message
     };
   }
 });
@@ -755,11 +1056,11 @@ ipcMain.handle("save-settings", async (event, payload) => {
     return { success: false, message: "Directory yang dipilih tidak ditemukan" };
   }
 
-  const sampExeCheck = path.join(gtaSaDirectory, "samp.exe");
-  if (!fs.existsSync(sampExeCheck)) {
+  const gtaExeCheck = path.join(gtaSaDirectory, "gta_sa.exe");
+  if (!fs.existsSync(gtaExeCheck)) {
     return {
       success: false,
-      message: "samp.exe tidak ditemukan di directory tersebut"
+      message: "gta_sa.exe tidak ditemukan di directory tersebut. Pastikan ini folder instalasi GTA San Andreas."
     };
   }
 
@@ -767,6 +1068,12 @@ ipcMain.handle("save-settings", async (event, payload) => {
 
   if (!saved) {
     return { success: false, message: "Gagal menyimpan pengaturan" };
+  }
+
+  const sharedResult = ensureSharedFilesInstalled(gtaSaDirectory);
+  if (!sharedResult.success) {
+    writeLog("WARN", "Gagal menyiapkan file shared SAMP saat save-settings: " + sharedResult.message);
+    // tidak fatal di titik ini -- akan dicoba lagi saat launch-samp
   }
 
   writeLog("INFO", "Directory GTA SA disimpan: " + gtaSaDirectory);

@@ -9,6 +9,14 @@
 <body>
   <div class="background-glow"></div>
 
+  <div class="top-left-info">
+    <img src="../assets/logo.png" alt="Logo" class="top-left-info__logo" />
+    <div>
+      <h1 class="top-left-info__title">SA:MP World</h1>
+      <p class="top-left-info__subtitle">Klik salah satu server untuk connect</p>
+    </div>
+  </div>
+
   <div class="top-right-controls">
     <div class="top-right-controls__row">
       <button id="add-server-btn" class="icon-button" title="Tambah Server">
@@ -37,25 +45,20 @@
 
   <main class="launcher-container">
     <div class="servers-panel">
-      <div class="servers-panel__header">
-        <div class="servers-panel__title-group">
-          <img src="../assets/logo.png" alt="Logo" class="servers-panel__logo" />
-          <div>
-            <h1 class="servers-panel__title">SA:MP World</h1>
-            <p class="servers-panel__subtitle">Klik salah satu server untuk connect</p>
-          </div>
-        </div>
+      <div class="servers-tabs">
+        <button class="servers-tab-btn active" data-tab="favorite" type="button">Favorite</button>
+        <button class="servers-tab-btn" data-tab="recommended" type="button">Rekomendasi</button>
       </div>
-
       <div class="servers-table-wrapper">
         <table class="servers-table">
           <thead>
             <tr>
-              <th>Nama Server</th>
-              <th>Version</th>
-              <th>Gamemode</th>
-              <th>Players</th>
-              <th>Ping</th>
+              <th class="sortable-th" data-sort-key="name">Nama Server<span class="sort-arrow"></span></th>
+              <th class="sortable-th" data-sort-key="version">Version<span class="sort-arrow"></span></th>
+              <th class="sortable-th" data-sort-key="gamemode">Gamemode<span class="sort-arrow"></span></th>
+              <th class="sortable-th" data-sort-key="players">Players<span class="sort-arrow"></span></th>
+              <th class="sortable-th" data-sort-key="ping">Ping<span class="sort-arrow"></span></th>
+              <th class="sortable-th lock-th" data-sort-key="locked">Lock<span class="sort-arrow"></span></th>
               <th></th>
             </tr>
           </thead>
@@ -111,6 +114,19 @@
       <p class="modal-subtitle">Masuk ke <span id="modal-server-ip">-</span></p>
 
       <div class="input-group">
+        <label for="samp-version-select" class="input-label">Versi SA-MP</label>
+        <select id="samp-version-select" class="username-input">
+          <option value="0.3.7-R1">0.3.7-R1</option>
+          <option value="0.3.7-R2">0.3.7-R2</option>
+          <option value="0.3.7-R3">0.3.7-R3</option>
+          <option value="0.3.7-R3-1">0.3.7-R3-1</option>
+          <option value="0.3.7-R4">0.3.7-R4</option>
+          <option value="0.3.7-R5">0.3.7-R5</option>
+          <option value="0.3.DL" selected>0.3.DL</option>
+        </select>
+      </div>
+
+      <div class="input-group">
         <label for="username-input" class="input-label">Username</label>
         <input
           type="text"
@@ -128,6 +144,31 @@
       <div class="modal-actions">
         <button id="cancel-btn" class="btn btn-cancel">Cancel</button>
         <button id="connect-btn" class="btn btn-connect">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="password-modal-overlay" class="modal-overlay">
+    <div class="modal-box">
+      <h2 class="modal-title">Password Server</h2>
+      <p class="modal-subtitle">Server <span id="password-modal-server-ip">-</span> terkunci</p>
+
+      <div class="input-group">
+        <label for="server-password-input" class="input-label">Password Server</label>
+        <input
+          type="password"
+          id="server-password-input"
+          class="username-input"
+          placeholder="Masukkan Password Server"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <span id="password-error-message" class="error-message"></span>
+      </div>
+
+      <div class="modal-actions">
+        <button id="password-cancel-btn" class="btn btn-cancel">Cancel</button>
+        <button id="password-connect-btn" class="btn btn-connect">Connect</button>
       </div>
     </div>
   </div>
