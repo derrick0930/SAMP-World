@@ -1,31 +1,3 @@
-; installer.nsh
-; Custom NSIS untuk SA:MP World installer.
-;
-; PENTING soal urutan halaman NSIS + electron-builder:
-;   Halaman bawaan (Welcome/Directory/Instfiles/Finish) untuk assisted installer
-;   didefinisikan di file template electron-builder yang di-include SEBELUM
-;   macro "customHeader" dipanggil. Jadi "Page custom ..." yang ditaruh di
-;   customHeader akan selalu nempel di PALING AKHIR (setelah Finish) -- itu
-;   penyebab bug sebelumnya (halaman kita cuma punya Back/Close/Cancel, dan
-;   $GtaSaDirValue masih kosong saat proses install berjalan).
-;
-;   Titik insersi yang BENAR untuk menambah halaman ekstra SEBELUM
-;   Directory/Instfiles/Finish adalah macro "customWelcomePage" -- macro ini
-;   didukung resmi oleh electron-builder dan dieksekusi tepat sebelum halaman
-;   Directory. Makanya di bawah kita insert MUI_PAGE_WELCOME + Page custom kita
-;   di dalam customWelcomePage.
-;
-; Alur final: Welcome -> [Pilih Directory GTA SA + checkbox Desktop shortcut]
-;             -> Directory (folder instalasi app) -> Instfiles (proses install,
-;             di titik ini customInstall jalan, $GtaSaDirValue SUDAH terisi)
-;             -> Finish (ada checkbox "Run SAMP World" bawaan electron-builder)
-;
-; Cara pakai: taruh file ini di root project (sejajar package.json), lalu di
-; package.json > build > nsis tambahkan:
-;   "include": "installer.nsh"
-; Dan set "createDesktopShortcut": false (supaya tidak dibuat otomatis tanpa
-; nanya -- kita yang bikin manual di customInstall sesuai checkbox pengguna).
-
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
 
@@ -37,7 +9,6 @@ Var DesktopShortcutCheckbox
 Var DesktopShortcutChoice
 Var FoundAppExeName
 
-; ---- Halaman custom: pilih folder GTA SA + checkbox desktop shortcut ----
 Function GtaSaDirPageCreate
   nsDialogs::Create 1018
   Pop $GtaSaDirPage
@@ -93,19 +64,11 @@ Function GtaSaDirPageLeave
     Return
 FunctionEnd
 
-; ---- Titik insersi resmi electron-builder untuk halaman tambahan sebelum
-; Directory/Instfiles/Finish. Welcome page memang tidak ditambahkan otomatis
-; oleh assisted installer kecuali macro ini didefinisikan, jadi kita insert
-; MUI_PAGE_WELCOME juga di sini supaya alurnya tetap lengkap dari awal. ----
 !macro customWelcomePage
   !insertMacro MUI_PAGE_WELCOME
   Page custom GtaSaDirPageCreate GtaSaDirPageLeave
 !macroend
 
-; ---- Cari nama exe utama launcher di $INSTDIR sekali saja, dipakai untuk
-; shortcut GTA SA maupun shortcut Desktop. Tidak diasumsikan namanya persis
-; karena productName mengandung karakter ":" yang tidak valid untuk nama file
-; Windows (electron-builder otomatis membuang/mengganti karakter itu). ----
 !macro FindAppExeOnce
   ${If} $FoundAppExeName == ""
     FindFirst $9 $FoundAppExeName "$INSTDIR\*.exe"
@@ -113,16 +76,12 @@ FunctionEnd
   ${EndIf}
 !macroend
 
-; ---- Setelah file ter-install: tulis file penanda + shortcut di folder GTA SA
-; + (opsional) shortcut Desktop sesuai checkbox pengguna ----
 !macro customInstall
   !insertmacro FindAppExeOnce
 
   ${If} $GtaSaDirValue != ""
     CreateDirectory "$APPDATA\SAMP World"
 
-    ; File penanda plain-text, satu baris = path apa adanya (tanpa escaping).
-    ; Dibaca & dihapus oleh main.js saat launcher pertama kali dibuka.
     FileOpen $0 "$APPDATA\SAMP World\pending-gtasa-path.txt" w
     FileWrite $0 "$GtaSaDirValue"
     FileClose $0
